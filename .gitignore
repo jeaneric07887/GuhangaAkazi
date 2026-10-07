@@ -1,0 +1,19 @@
+# Environment configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+.neon
+
+# JavaScript dependencies and build output
+node_modules/
+**/node_modules/
+frontend/dist/
+coverage/
+backend/uploads/
+
+# Local development artifacts
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
