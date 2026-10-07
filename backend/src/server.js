@@ -28,7 +28,7 @@ const mediaTypes = {
   'image/webp': { extension: 'webp', category: 'image', matches: (bytes) => bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' },
   'image/avif': { extension: 'avif', category: 'image', matches: (bytes) => bytes.toString('ascii', 4, 8) === 'ftyp' && /^(avif|avis)$/.test(bytes.toString('ascii', 8, 12)) },
   'image/bmp': { extension: 'bmp', category: 'image', matches: (bytes) => bytes.toString('ascii', 0, 2) === 'BM' },
-  'image/tiff': { extension: 'tiff', category: 'image', matches: (bytes) => ['II*\\0', 'MM\\0*'].includes(bytes.toString('ascii', 0, 4)) },
+  'image/tiff': { extension: 'tiff', category: 'image', matches: (bytes) => ['II*\0', 'MM\0*'].includes(bytes.toString('ascii', 0, 4)) },
   'image/heic': { extension: 'heic', category: 'image', matches: (bytes) => bytes.toString('ascii', 4, 8) === 'ftyp' && /^(heic|heix|hevc|hevx|mif1|msf1)$/.test(bytes.toString('ascii', 8, 12)) },
   'image/heif': { extension: 'heif', category: 'image', matches: (bytes) => bytes.toString('ascii', 4, 8) === 'ftyp' && /^(heic|heix|hevc|hevx|mif1|msf1)$/.test(bytes.toString('ascii', 8, 12)) },
   'image/x-icon': { extension: 'ico', category: 'image', matches: (bytes) => bytes.length >= 4 && bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1 && bytes[3] === 0 },
@@ -80,10 +80,7 @@ const fieldLabels = {
   risks: 'risks',
   tips: 'tips',
 }
-const publicFields = `id, title, description, long_description, category,
-  image_url, image_description, video_url, video_description, startup_capital,
-  expected_cost, expected_revenue, requirements, equipment, target_customers,
-  steps, profitability_notes, risks, tips, featured, created_at, updated_at`
+const publicFields = `id, title, description, long_description, category, image_url, image_description, video_url, video_description, startup_capital, expected_cost, expected_revenue, requirements, equipment, target_customers, steps, profitability_notes, risks, tips, featured, created_at, updated_at`
 
 const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
   .split(',')
@@ -332,9 +329,9 @@ app.get('/api/account/me', requireUser, asyncRoute(async (req, res) => {
 app.get('/api/messages', requireUser, asyncRoute(async (req, res) => {
   const result = await pool.query(
     `SELECT c.id, c.contact_type, c.status, c.created_at, c.updated_at,
-       COALESCE(json_agg(json_build_object(
-         'id', m.id, 'sender_type', m.sender_type, 'body', m.body, 'created_at', m.created_at
-       ) ORDER BY m.created_at, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS messages
+            COALESCE(json_agg(json_build_object(
+              'id', m.id, 'sender_type', m.sender_type, 'body', m.body, 'created_at', m.created_at
+            ) ORDER BY m.created_at, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS messages
      FROM conversations c
      LEFT JOIN conversation_messages m ON m.conversation_id = c.id
      WHERE c.user_id = $1
@@ -459,7 +456,7 @@ app.post('/api/messages/:id/replies', requireUser, submissionLimiter, asyncRoute
 app.get('/api/search', asyncRoute(async (req, res) => {
   const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''
   if (!query) return res.json({ results: [] })
-  if (query.length > 100) return res.status(400).json({ error: 'Search must be 100 characters or less.' })
+  if (query.length > 100) return res.status(400).json({ error: 'Search text must be 100 characters or less.' })
 
   const pattern = `%${query}%`
   const searchableFields = [
