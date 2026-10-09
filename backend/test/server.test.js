@@ -72,7 +72,7 @@ test('Vercel handler runs without JWT_SECRET and reports unavailable authenticat
 })
 
 before(async () => {
-  for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_RECIPIENT']) {
+  for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASSWORD', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_RECIPIENT', 'BLOB_READ_WRITE_TOKEN', 'VERCEL']) {
     delete process.env[key]
   }
   adminHash = await passwordHashPromise
@@ -303,6 +303,29 @@ test('admin sign-in returns a signed token', async () => {
   adminToken = result.token
 })
 
+test('Blob upload setup requires an admin and reports missing storage', async () => {
+  const unauthenticated = await fetch(`${baseUrl}/api/admin/uploads/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(unauthenticated.status, 401)
+
+  const config = await fetch(`${baseUrl}/api/admin/uploads/config`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  })
+  assert.equal(config.status, 200)
+  assert.deepEqual(await config.json(), { direct: false })
+
+  const response = await fetch(`${baseUrl}/api/admin/uploads/token`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(response.status, 503)
+  assert.match((await response.json()).error, /Vercel Blob store/)
+})
+
 test('admins can assign uploaded media to a public page', async () => {
   const response = await fetch(`${baseUrl}/api/admin/media`, {
     method: 'POST',
@@ -358,6 +381,21 @@ test('admin content preserves free-form cost and income text', async () => {
   assert.ok(insertedIdeaValues.includes('3,000 - 50,000 RWF'))
   assert.ok(insertedIdeaValues.includes('around 2,000 RWF'))
   assert.ok(insertedIdeaValues.includes('varies by season'))
+})
+
+test('admin content can be saved without a photo or video', async () => {
+  const response = await fetch(`${baseUrl}/api/admin/ideas`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Text-only idea',
+      description: 'An idea without optional media.',
+      image_url: '',
+      video_url: '',
+    }),
+  })
+  assert.equal(response.status, 201)
+  assert.ok(insertedIdeaValues.includes(''))
 })
 
 test('admins can upload GIF photos and WebM videos', async () => {

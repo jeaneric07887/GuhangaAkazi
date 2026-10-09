@@ -1,14 +1,24 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+import { upload } from '@vercel/blob/client'
+
+const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+const API_BASE_URL = !configuredApiUrl
+  ? '/api'
+  : configuredApiUrl.endsWith('/api')
+    ? configuredApiUrl
+    : `${configuredApiUrl}/api`
 
 async function readResponse(response) {
   if (response.status === 204) return null
   let data
   try {
-    data = await response.json()
+    const body = await response.text()
+    data = body ? JSON.parse(body) : null
   } catch {
-    throw new Error('The server returned an invalid response.')
+    const contentType = response.headers.get('content-type')?.split(';')[0] || 'unknown content type'
+    throw new Error(`The server returned an invalid response (HTTP ${response.status}, ${contentType}).`)
   }
   if (!response.ok) throw new Error(data?.error || `Something went wrong (${response.status}).`)
+  if (data === null) throw new Error(`The server returned an empty response (HTTP ${response.status}).`)
   return data
 }
 
@@ -35,6 +45,19 @@ export async function uploadMedia(file) {
   const maxSize = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024
   if (file.size > maxSize) throw new Error(`Choose a ${mediaType} that is ${mediaType === 'image' ? '10 MB' : '50 MB'} or smaller.`)
   const token = sessionStorage.getItem('adminToken')
+  const uploadConfig = await apiRequest('/admin/uploads/config')
+  if (uploadConfig.direct) {
+    const blob = await upload(`uploads/${crypto.randomUUID()}`, file, {
+      access: 'public',
+      contentType: file.type,
+      handleUploadUrl: `${API_BASE_URL}/admin/uploads/token`,
+      clientPayload: file.type,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      multipart: file.size > 5 * 1024 * 1024,
+    })
+    return { url: blob.url }
+  }
+
   const headers = new Headers({ 'Content-Type': file.type })
   if (token) headers.set('Authorization', `Bearer ${token}`)
 

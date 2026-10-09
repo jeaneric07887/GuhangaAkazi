@@ -88,6 +88,7 @@ export default function AdminDashboard() {
   const [media, setMedia] = useState([])
   const [mediaForm, setMediaForm] = useState(emptyMediaForm)
   const [photoFile, setPhotoFile] = useState(null)
+  const [videoFile, setVideoFile] = useState(null)
   const [contentPhoto, setContentPhoto] = useState(null)
   const [contentVideo, setContentVideo] = useState(null)
   const [form, setForm] = useState(emptyForm)
@@ -101,10 +102,25 @@ export default function AdminDashboard() {
   const [messageDraft, setMessageDraft] = useState('')
   const [editingConversationId, setEditingConversationId] = useState(null)
   const [conversationDraft, setConversationDraft] = useState({})
-  const [uploading, setUploading] = useState(false)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [photoUploadError, setPhotoUploadError] = useState('')
+  const [videoUploadError, setVideoUploadError] = useState('')
+  const [photoUploadNotice, setPhotoUploadNotice] = useState('')
+  const [videoUploadNotice, setVideoUploadNotice] = useState('')
+  const displayedError = photoUploadError || videoUploadError || error
+  const displayedNotice = photoUploadNotice || videoUploadNotice || notice
+
+  function clearUploadFeedback() {
+    setPhotoUploadError('')
+    setVideoUploadError('')
+    setPhotoUploadNotice('')
+    setVideoUploadNotice('')
+  }
 
   useEffect(() => {
     if (!token) return
@@ -178,6 +194,7 @@ export default function AdminDashboard() {
     setEditingId(item.id)
     setContentPhoto(null)
     setContentVideo(null)
+    clearUploadFeedback()
     setForm(Object.fromEntries(editableFields.map((field) => [field, item[field] ?? emptyForm[field]])))
     setError('')
     setNotice('')
@@ -186,10 +203,26 @@ export default function AdminDashboard() {
 
   async function saveContent(event) {
     event.preventDefault()
+    clearUploadFeedback()
     setError('')
     setNotice('')
     const body = Object.fromEntries(editableFields.map((field) => [field, form[field]]))
+    setSaving(true)
     try {
+      if (contentPhoto) {
+        setIsUploadingPhoto(true)
+        const uploaded = await uploadMedia(contentPhoto)
+        body.image_url = uploaded.url
+        setForm((current) => ({ ...current, image_url: uploaded.url }))
+        setContentPhoto(null)
+      }
+      if (contentVideo) {
+        setIsUploadingVideo(true)
+        const uploaded = await uploadMedia(contentVideo)
+        body.video_url = uploaded.url
+        setForm((current) => ({ ...current, video_url: uploaded.url }))
+        setContentVideo(null)
+      }
       if (editingId) await api.update(section, editingId, body)
       else await api.create(section, body)
       const result = await api.adminList(section)
@@ -201,54 +234,61 @@ export default function AdminDashboard() {
       setNotice('Changes saved.')
     } catch (saveError) {
       setError(saveError.message)
+    } finally {
+      setIsUploadingPhoto(false)
+      setIsUploadingVideo(false)
+      setSaving(false)
     }
   }
 
   async function uploadContentPhoto() {
+    clearUploadFeedback()
+    setError('')
+    setNotice('')
     if (!contentPhoto) {
-      setError('Choose a photo from your phone or computer first.')
+      setPhotoUploadError('Choose a photo from your phone or computer first.')
       return
     }
     if (!contentPhoto.type.startsWith('image/')) {
-      setError('Choose a supported photo file.')
+      setPhotoUploadError('Choose a supported photo file.')
       return
     }
-    setUploading(true)
-    setError('')
-    setNotice('')
+    setIsUploadingPhoto(true)
     try {
       const uploaded = await uploadMedia(contentPhoto)
       setForm((current) => ({ ...current, image_url: uploaded.url }))
       setContentPhoto(null)
-      setNotice('Photo uploaded. Save the item to display it on the website.')
+      setPhotoUploadNotice('Photo uploaded. Save the item to display it on the website.')
     } catch (uploadError) {
-      setError(uploadError.message)
+      setPhotoUploadError(uploadError.message)
     } finally {
-      setUploading(false)
+      setIsUploadingPhoto(false)
     }
   }
 
   async function uploadContentVideo() {
+    clearUploadFeedback()
+    setError('')
+    setNotice('')
     if (!contentVideo) {
-      setError('Choose a video from your phone or computer first.')
+      setVideoUploadError('Choose a video from your phone or computer first.')
       return
     }
     if (!contentVideo.type.startsWith('video/')) {
-      setError('Choose a supported video file.')
+      setVideoUploadError('Choose a supported video file.')
       return
     }
-    setUploading(true)
-    setError('')
+    setIsUploadingVideo(true)
     setNotice('')
     try {
       const uploaded = await uploadMedia(contentVideo)
       setForm((current) => ({ ...current, video_url: uploaded.url }))
       setContentVideo(null)
-      setNotice('Video uploaded. Save the item to display it on the website.')
+      setVideoUploadNotice('Video uploaded. Save the item to display it on the website.')
     } catch (uploadError) {
-      setError(uploadError.message)
+      setVideoUploadError(uploadError.message)
     } finally {
-      setUploading(false)
+      setIsUploadingVideo(false)
     }
   }
 
@@ -401,12 +441,28 @@ export default function AdminDashboard() {
 
   async function submitMedia(event) {
     event.preventDefault()
+    clearUploadFeedback()
     setError('')
     setNotice('')
     const formElement = event.currentTarget
+    setSaving(true)
     try {
+      let url = mediaForm.url
+      let mediaType = mediaForm.media_type
+      const selectedFile = mediaType === 'image' ? photoFile : videoFile
+      if (selectedFile) {
+        if (mediaType === 'image') setIsUploadingPhoto(true)
+        else setIsUploadingVideo(true)
+        const uploaded = await uploadMedia(selectedFile)
+        url = uploaded.url
+        setMediaForm((current) => ({ ...current, media_type: mediaType, url }))
+        if (mediaType === 'image') setPhotoFile(null)
+        else setVideoFile(null)
+      }
       const body = {
         ...mediaForm,
+        media_type: mediaType,
+        url,
         content_id: mediaForm.content_type === 'pages' ? null : Number(mediaForm.content_id),
         page_slug: mediaForm.content_type === 'pages' ? mediaForm.page_slug : null,
       }
@@ -416,36 +472,68 @@ export default function AdminDashboard() {
       setMedia(result.items)
       setMediaForm(emptyMediaForm)
       setPhotoFile(null)
+      setVideoFile(null)
       setEditingMediaId(null)
       formElement.reset()
       setNotice(editingMediaId ? 'Photo or video updated.' : 'Photo or video saved.')
     } catch (actionError) {
       setError(actionError.message)
+    } finally {
+      setIsUploadingPhoto(false)
+      setIsUploadingVideo(false)
+      setSaving(false)
     }
   }
 
   async function uploadMediaPhoto() {
+    clearUploadFeedback()
+    setError('')
+    setNotice('')
     if (!photoFile) {
-      setError(`Choose a ${mediaForm.media_type} file from your phone or computer first.`)
+      setPhotoUploadError('Choose a photo file from your phone or computer first.')
       return
     }
-    if (!photoFile.type.startsWith(`${mediaForm.media_type}/`)) {
-      setError(`Choose a ${mediaForm.media_type} file to upload.`)
+    if (!photoFile.type.startsWith('image/')) {
+      setPhotoUploadError('Choose a supported photo file.')
       return
     }
-    setUploading(true)
+    setIsUploadingPhoto(true)
+    try {
+      const uploaded = await uploadMedia(photoFile)
+      setMediaForm((current) => ({ ...current, media_type: 'image', url: uploaded.url }))
+      setPhotoFile(null)
+      setPhotoUploadNotice('Photo uploaded. Save it to display it with the selected item.')
+    } catch (uploadError) {
+      setPhotoUploadError(uploadError.message)
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
+  async function uploadMediaVideo() {
+    clearUploadFeedback()
+    setError('')
+    setNotice('')
+    if (!videoFile) {
+      setVideoUploadError('Choose a video file from your phone or computer first.')
+      return
+    }
+    if (!videoFile.type.startsWith('video/')) {
+      setVideoUploadError('Choose a supported video file.')
+      return
+    }
+    setIsUploadingVideo(true)
     setError('')
     setNotice('')
     try {
-      const uploaded = await uploadMedia(photoFile)
-      const mediaType = photoFile.type.startsWith('video/') ? 'video' : 'image'
-      setMediaForm((current) => ({ ...current, media_type: mediaType, url: uploaded.url }))
-      setPhotoFile(null)
-      setNotice(`${mediaType === 'image' ? 'Photo' : 'Video'} uploaded. Save it to display it with the selected item.`)
+      const uploaded = await uploadMedia(videoFile)
+      setMediaForm((current) => ({ ...current, media_type: 'video', url: uploaded.url }))
+      setVideoFile(null)
+      setVideoUploadNotice('Video uploaded. Save it to display it with the selected item.')
     } catch (uploadError) {
-      setError(uploadError.message)
+      setVideoUploadError(uploadError.message)
     } finally {
-      setUploading(false)
+      setIsUploadingVideo(false)
     }
   }
 
@@ -457,6 +545,8 @@ export default function AdminDashboard() {
       if (editingMediaId === asset.id) {
         setEditingMediaId(null)
         setMediaForm(emptyMediaForm)
+        setPhotoFile(null)
+        setVideoFile(null)
       }
       setNotice('Photo or video deleted.')
     } catch (actionError) {
@@ -499,16 +589,16 @@ export default function AdminDashboard() {
         <button className="button button-outline" type="button" onClick={logout}>Sign out</button>
       </header>
       <nav className="admin-tabs" aria-label="Admin sections">
-        {sections.map(([key, label]) => <button type="button" className={section === key ? 'admin-tab active' : 'admin-tab'} onClick={() => { setSection(key); setError(''); setNotice('') }} key={key}>{label}</button>)}
+        {sections.map(([key, label]) => <button type="button" className={section === key ? 'admin-tab active' : 'admin-tab'} onClick={() => { setSection(key); setError(''); setNotice(''); clearUploadFeedback() }} key={key}>{label}</button>)}
       </nav>
-      {error && <p className="form-error admin-message" role="alert">{error}</p>}
-      {notice && <p className="form-success admin-message" role="status">{notice}</p>}
+      {displayedError && <p className="form-error admin-message" role="alert">{displayedError}</p>}
+      {displayedNotice && <p className="form-success admin-message" role="status">{displayedNotice}</p>}
       {loading && <p className="notice">Loading…</p>}
 
       {!loading && resourceTabs.some(([key]) => key === section) && (
         <div className="admin-content">
           <section className="admin-records">
-            <div className="admin-section-title"><div><span className="eyebrow">{sections.find(([key]) => key === section)?.[1]}</span><h2>Manage {sections.find(([key]) => key === section)?.[1].toLowerCase()}</h2></div><button type="button" className="button button-primary" onClick={() => { setEditingId(null); setForm(emptyForm); setContentPhoto(null); setContentVideo(null); setError(''); setNotice('') }}>+ Add new</button></div>
+            <div className="admin-section-title"><div><span className="eyebrow">{sections.find(([key]) => key === section)?.[1]}</span><h2>Manage {sections.find(([key]) => key === section)?.[1].toLowerCase()}</h2></div><button type="button" className="button button-primary" onClick={() => { setEditingId(null); setForm(emptyForm); setContentPhoto(null); setContentVideo(null); setError(''); setNotice(''); clearUploadFeedback() }}>+ Add new</button></div>
             {items.length === 0 && <p className="notice">There are no items yet. Use the form to add one.</p>}
             <div className="admin-item-list">
               {items.map((item) => <article className="admin-item" key={item.id}>
@@ -520,18 +610,36 @@ export default function AdminDashboard() {
           <form className="form-card admin-editor" id="content-editor" onSubmit={saveContent}>
             <span className="eyebrow">{editingId ? 'Edit item' : 'Add something new'}</span>
             <h2>{editingId ? 'Edit details' : `Add ${({ ideas: 'a business idea', opportunities: 'an opportunity', skills: 'a skill' })[section]}`}</h2>
-            <label>Choose photo
-              <input key={contentPhoto?.name || 'empty-content-photo'} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp,image/tiff,image/heic,image/heif,image/x-icon,image/vnd.microsoft.icon,.heic,.heif,.ico" onChange={(event) => setContentPhoto(event.target.files?.[0] || null)} />
-              <small>Select a photo from your phone or computer.</small>
+            <label>Choose photo (optional)
+              <input key={contentPhoto?.name || 'empty-content-photo'} type="file" accept="image/*" onChange={(event) => {
+                const file = event.target.files?.[0] || null
+                clearUploadFeedback()
+                if (file && !file.type.startsWith('image/')) {
+                  setPhotoUploadError('Choose a supported photo file.')
+                  setContentPhoto(null)
+                  return
+                }
+                setContentPhoto(file)
+              }} />
+              <small>Select a photo if you want to add one. It uploads when you save this item, or you can use Upload photo first.</small>
             </label>
-            <button className="button button-outline upload-button" type="button" onClick={uploadContentPhoto} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload photo'}</button>
+            <button className="button button-outline upload-button" type="button" onClick={uploadContentPhoto} disabled={isUploadingPhoto || isUploadingVideo || saving}>{isUploadingPhoto ? 'Uploading…' : 'Upload photo'}</button>
             {form.image_url && <img className="admin-photo-preview" src={form.image_url} alt="Photo preview" />}
-            <label>Choose video from computer or phone
-              <input key={contentVideo?.name || 'empty-content-video'} type="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/x-ms-wmv,video/mpeg,video/3gpp,video/3gpp2,video/ogg,video/x-flv,video/x-m4v,video/mp2t" onChange={(event) => setContentVideo(event.target.files?.[0] || null)} />
-              <small>Select a video from your phone or computer.</small>
+            <label>Choose video (optional)
+              <input key={contentVideo?.name || 'empty-content-video'} type="file" accept="video/*" onChange={(event) => {
+                const file = event.target.files?.[0] || null
+                clearUploadFeedback()
+                if (file && !file.type.startsWith('video/')) {
+                  setVideoUploadError('Choose a supported video file.')
+                  setContentVideo(null)
+                  return
+                }
+                setContentVideo(file)
+              }} />
+              <small>Select a video if you want to add one. It uploads when you save this item, or you can use Upload video first.</small>
             </label>
-            <button className="button button-outline upload-button" type="button" onClick={uploadContentVideo} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload video'}</button>
-            {form.video_url && form.video_url.includes('/uploads/')
+            <button className="button button-outline upload-button" type="button" onClick={uploadContentVideo} disabled={isUploadingPhoto || isUploadingVideo || saving}>{isUploadingVideo ? 'Uploading…' : 'Upload video'}</button>
+            {form.video_url
               && <video className="admin-photo-preview" controls preload="metadata" aria-label="Video preview"><source src={form.video_url} /></video>}
             {textFields.map(([field, label, required]) => (
               <label key={field}>{label}
@@ -546,8 +654,8 @@ export default function AdminDashboard() {
             <div className="checkbox-fields">
               {['featured', 'published'].map((field) => <label className="checkbox-label" key={field}><input type="checkbox" checked={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.checked })} /> {field === 'featured' ? 'Show on the home page' : 'Publish on the site'}</label>)}
             </div>
-            <p className="upload-hint">Upload photos or videos, add their descriptions, then save the item to display them on the website.</p>
-            <div className="editor-actions"><button className="button button-primary" type="submit" disabled={uploading}>{editingId ? 'Save changes' : 'Save item'} <span aria-hidden="true">↗</span></button>{editingId && <button className="button button-outline" type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setContentPhoto(null); setContentVideo(null) }}>Cancel</button>}</div>
+            <p className="upload-hint">Photo and video uploads are optional. Save this item with either, both, or neither; any selected files will upload as part of saving.</p>
+            <div className="editor-actions"><button className="button button-primary" type="submit" disabled={isUploadingPhoto || isUploadingVideo || saving}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Save item'} <span aria-hidden="true">↗</span></button>{editingId && <button className="button button-outline" type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setContentPhoto(null); setContentVideo(null); clearUploadFeedback() }}>Cancel</button>}</div>
           </form>
         </div>
       )}
@@ -567,37 +675,55 @@ export default function AdminDashboard() {
               {mediaForm.content_type === 'pages'
                 ? <label>Public page<select value={mediaForm.page_slug} onChange={(event) => setMediaForm({ ...mediaForm, page_slug: event.target.value })} required>{publicPages.map(([slug, label]) => <option value={slug} key={slug}>{label}</option>)}</select></label>
                 : <label>Content ID<input type="number" min="1" step="1" value={mediaForm.content_id} onChange={(event) => setMediaForm({ ...mediaForm, content_id: event.target.value })} required /></label>}
-              <label>Media type<select value={mediaForm.media_type} onChange={(event) => { setMediaForm({ ...mediaForm, media_type: event.target.value, url: '' }); setPhotoFile(null) }} required><option value="image">Photo</option><option value="video">Video</option></select></label>
+              <label>Media type<select value={mediaForm.media_type} onChange={(event) => { setMediaForm({ ...mediaForm, media_type: event.target.value, url: '' }) }} required><option value="image">Photo</option><option value="video">Video</option></select></label>
             </div>
             <label>Title<input value={mediaForm.title} onChange={(event) => setMediaForm({ ...mediaForm, title: event.target.value })} maxLength={180} required /></label>
             <label>Description<input value={mediaForm.description} onChange={(event) => setMediaForm({ ...mediaForm, description: event.target.value })} maxLength={500} /></label>
             {mediaForm.media_type === 'image' ? <>
               <label>Choose photo
-                <input key={photoFile?.name || 'empty-media-photo'} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,image/bmp,image/tiff,image/heic,image/heif,image/x-icon,image/vnd.microsoft.icon,.heic,.heif,.ico" onChange={(event) => setPhotoFile(event.target.files?.[0] || null)} />
+                <input key={photoFile?.name || 'empty-media-photo'} type="file" accept="image/*" onChange={(event) => {
+                  const file = event.target.files?.[0] || null
+                  clearUploadFeedback()
+                  if (file && !file.type.startsWith('image/')) {
+                    setPhotoUploadError('Choose a supported photo file.')
+                    setPhotoFile(null)
+                    return
+                  }
+                  setPhotoFile(file)
+                }} />
                 <small>Select a photo from your phone or computer. Common photo formats are supported.</small>
               </label>
-              <button className="button button-outline upload-button" type="button" onClick={uploadMediaPhoto} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload photo'}</button>
+              <button className="button button-outline upload-button" type="button" onClick={uploadMediaPhoto} disabled={isUploadingPhoto || isUploadingVideo || saving}>{isUploadingPhoto ? 'Uploading…' : 'Upload photo'}</button>
               {mediaForm.url && <img className="admin-photo-preview" src={mediaForm.url} alt="Photo preview" />}
             </> : <>
               <label>Choose video
-                <input key={photoFile?.name || 'empty-media-video'} type="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/x-ms-wmv,video/mpeg,video/3gpp,video/3gpp2,video/ogg,video/x-flv,video/x-m4v,video/mp2t" onChange={(event) => setPhotoFile(event.target.files?.[0] || null)} />
+                <input key={videoFile?.name || 'empty-media-video'} type="file" accept="video/*" onChange={(event) => {
+                  const file = event.target.files?.[0] || null
+                  clearUploadFeedback()
+                  if (file && !file.type.startsWith('video/')) {
+                    setVideoUploadError('Choose a supported video file.')
+                    setVideoFile(null)
+                    return
+                  }
+                  setVideoFile(file)
+                }} />
                 <small>Select a video file from your phone or computer, or enter an external video link below.</small>
               </label>
-              <button className="button button-outline upload-button" type="button" onClick={uploadMediaPhoto} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload video'}</button>
+              <button className="button button-outline upload-button" type="button" onClick={uploadMediaVideo} disabled={isUploadingPhoto || isUploadingVideo || saving}>{isUploadingVideo ? 'Uploading…' : 'Upload video'}</button>
               <label>Video link (HTTP or HTTPS)<input type="url" value={mediaForm.url} onChange={(event) => setMediaForm({ ...mediaForm, url: event.target.value })} maxLength={2000} /></label>
-              {mediaForm.url.includes('/uploads/') && <video className="admin-photo-preview" controls preload="metadata" aria-label="Video preview"><source src={mediaForm.url} /></video>}
+              {mediaForm.url && <video className="admin-photo-preview" controls preload="metadata" aria-label="Video preview"><source src={mediaForm.url} /></video>}
             </>}
-            <p className="upload-hint">Choose a photo or video file, upload it, then save it to display it with the selected item.</p>
+            <p className="upload-hint">Choose a photo or video file and save it to upload and display it with the selected item. A media-library entry must have a file or a video link.</p>
             <div className="editor-actions">
-              <button className="button button-primary" type="submit" disabled={uploading || !mediaForm.url}>{editingMediaId ? 'Save changes' : 'Save photo or video'} <span aria-hidden="true">↗</span></button>
-              {editingMediaId && <button className="button button-outline" type="button" onClick={() => { setEditingMediaId(null); setMediaForm(emptyMediaForm); setPhotoFile(null) }}>Cancel</button>}
+              <button className="button button-primary" type="submit" disabled={isUploadingPhoto || isUploadingVideo || saving || (!mediaForm.url && !(mediaForm.media_type === 'image' ? photoFile : videoFile))}>{saving ? 'Saving…' : editingMediaId ? 'Save changes' : 'Save photo or video'} <span aria-hidden="true">↗</span></button>
+              {editingMediaId && <button className="button button-outline" type="button" onClick={() => { setEditingMediaId(null); setMediaForm(emptyMediaForm); setPhotoFile(null); setVideoFile(null) }}>Cancel</button>}
             </div>
           </form>
           <div className="admin-item-list media-admin-list">
             {media.length === 0 && <p className="notice">No photos or videos have been added.</p>}
             {media.map((asset) => <article className="admin-item" key={asset.id}>
                     <div><h3>{asset.title}</h3><p>{asset.description || asset.url}</p><span className="status-pill">{asset.media_type === 'image' ? 'Photo' : 'Video'} · {asset.content_type === 'pages' ? publicPages.find(([slug]) => slug === asset.page_slug)?.[1] : `${{ ideas: 'business ideas', opportunities: 'opportunities', skills: 'skills' }[asset.content_type]} #${asset.content_id}`}</span></div>
-                    <div className="admin-item-actions"><button type="button" className="small-button" onClick={() => { setEditingMediaId(asset.id); setPhotoFile(null); setMediaForm({ content_type: asset.content_type, content_id: asset.content_id ? String(asset.content_id) : '', page_slug: asset.page_slug || 'home', media_type: asset.media_type, title: asset.title, description: asset.description || '', url: asset.url }); setError(''); setNotice('') }}>Edit</button><button type="button" className="small-button danger-button" onClick={() => deleteMedia(asset)}>Delete</button></div>
+                    <div className="admin-item-actions"><button type="button" className="small-button" onClick={() => { setEditingMediaId(asset.id); setPhotoFile(null); setVideoFile(null); setMediaForm({ content_type: asset.content_type, content_id: asset.content_id ? String(asset.content_id) : '', page_slug: asset.page_slug || 'home', media_type: asset.media_type, title: asset.title, description: asset.description || '', url: asset.url }); setError(''); setNotice(''); clearUploadFeedback() }}>Edit</button><button type="button" className="small-button danger-button" onClick={() => deleteMedia(asset)}>Delete</button></div>
             </article>)}
           </div>
         </section>

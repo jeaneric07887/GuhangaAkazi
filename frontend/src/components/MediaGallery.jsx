@@ -28,11 +28,13 @@ export default function MediaGallery({ page }) {
       <div className="content-grid">
         {state.items.map((asset) => (
           <article className="media-card" key={asset.id}>
-            {asset.media_type === 'image'
-              ? <img src={asset.url} alt={asset.description || asset.title} loading="lazy" />
-              : asset.url.includes('/uploads/')
-                ? <video controls preload="metadata" aria-label={asset.title}><source src={asset.url} /></video>
-                : <a href={asset.url} target="_blank" rel="noreferrer">Watch video ↗</a>}
+            <div className="media-frame">
+              {asset.media_type === 'image'
+                ? <img src={asset.url} alt={asset.description || asset.title} loading="lazy" />
+                : asset.url.includes('/uploads/')
+                  ? <video controls preload="metadata" aria-label={asset.title}><source src={asset.url} /></video>
+                  : <a className="media-frame-link" href={asset.url} target="_blank" rel="noreferrer">Watch video ↗</a>}
+            </div>
             <span className="eyebrow">{asset.media_type === 'image' ? 'Photo' : 'Video'}</span>
             <strong>{asset.title}</strong>
             {asset.description && <p>{asset.description}</p>}

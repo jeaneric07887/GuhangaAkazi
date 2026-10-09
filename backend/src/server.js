@@ -1,6 +1,7 @@
 require('dotenv').config()
 
 const express = require('express')
+const { handleUpload } = require('@vercel/blob/client')
 const cors = require('cors')
 const helmet = require('helmet')
 const bcrypt = require('bcryptjs')
@@ -620,6 +621,39 @@ app.post('/api/comments', submissionLimiter, asyncRoute(async (req, res) => {
 }))
 
 app.use('/api/admin', requireAdmin)
+
+app.get('/api/admin/uploads/config', (_req, res) => {
+  res.json({ direct: Boolean(process.env.VERCEL) })
+})
+
+app.post('/api/admin/uploads/token', asyncRoute(async (req, res) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'Photo and video uploads need a Vercel Blob store. Connect one to this project and redeploy.' })
+  }
+
+  const uploadRequest = req.body?.payload
+  const mediaType = typeof uploadRequest?.clientPayload === 'string'
+    ? mediaTypes[uploadRequest.clientPayload]
+    : null
+  if (!mediaType || !/^uploads\/[a-f0-9-]{36}$/.test(uploadRequest.pathname || '')) {
+    return res.status(400).json({ error: 'Choose a supported photo or video file.' })
+  }
+
+  const result = await handleUpload({
+    body: req.body,
+    request: req,
+    onBeforeGenerateToken: async (pathname, contentType) => {
+      if (pathname !== uploadRequest.pathname || contentType !== uploadRequest.clientPayload) {
+        throw new Error('The requested upload does not match the selected file.')
+      }
+      return {
+        allowedContentTypes: [contentType],
+        maximumSizeInBytes: mediaType.category === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024,
+      }
+    },
+  })
+  res.json(result)
+}))
 
 app.post('/api/admin/uploads', (req, res, next) => {
   if (!Object.hasOwn(mediaTypes, req.get('content-type'))) {
